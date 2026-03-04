@@ -114,6 +114,13 @@ jobs:
           # Ensure module dependencies are consistent
           go mod tidy
 
+          # Fix tailscale FreeBSD unused import issue
+          TAILSCALE_PATH=$(go env GOPATH)/pkg/mod/github.com/sagernet/tailscale@*
+          FREEBSD_ROUTER_FILE=$(ls -d ${TAILSCALE_PATH} 2>/dev/null | head -n1)/wgengine/router/osrouter/router_freebsd.go
+          if [ -f "$FREEBSD_ROUTER_FILE" ]; then
+            sed -i '/github.com\/sagernet\/wireguard-go\/tun/d' "$FREEBSD_ROUTER_FILE"
+          fi
+
       # 构建
       - name: Build
         if: steps.check.outputs.new == 'true'
