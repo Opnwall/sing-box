@@ -1,5 +1,4 @@
 name: Build
-
 on:
   workflow_dispatch:
   schedule:
@@ -7,40 +6,60 @@ on:
   push:
     branches:
       - master
+      - hidden
     paths-ignore:
       - "**/README.md"
       - "**/template.json"
 
 jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 3
+          keep_minimum_runs: 6
+
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: freebsd, goarch: amd64 }
     outputs:
       new: ${{ steps.check.outputs.new }}
       version: ${{ steps.check.outputs.version }}
-
     steps:
-      # 获取最新版本
-      - name: Get latest sing-box version
+      - name: Set variables
         run: |
           latest_version=$(curl -sSL https://api.github.com/repos/Sagernet/sing-box/releases/latest | jq -r '.tag_name' | sed 's|v||g')
-          echo "VERSION=${latest_version}" >> $GITHUB_ENV
           echo "RELEASE_NAME=${latest_version}-vincent" >> $GITHUB_ENV
           echo "TAG_NAME=v${latest_version}-vincent" >> $GITHUB_ENV
-          echo "TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api" >> $GITHUB_ENV
+          echo "tags=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" >> $GITHUB_ENV
+          echo "version=${latest_version}" >> $GITHUB_ENV
 
-      # 读取 hidden 分支版本记录
-      - name: Checkout repository (for version check)
+      - name: Checkout the "hidden" branch
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: hidden
 
-      - name: Try switch to hidden branch
+      - name: Apply patches
         run: |
-          if git show-ref --verify --quiet refs/heads/hidden; then
-            git checkout hidden
-          else
-            echo "hidden branch does not exist yet"
-          fi
+          git clone --depth 1 -b main https://github.com/Sagernet/sing-tun.git sing-tun
+          git clone --depth 1 https://github.com/metacubex/tfo-go.git tfo-go
+          git clone --depth 1 -b main https://github.com/Sagernet/sing-box.git sing-box
+          ls -lha
+          cd sing-tun
+          patch -p1 < ../sing-tun.patch
+          cp monitor_darwin.go monitor_freebsd.go
+          cp monitor_darwin.go monitor_openbsd.go
+          cd ../sing-box
+          patch -p1 < ../sing-box.patch
+          sing_tun_version=$(cat go.mod | grep github.com/sagernet/sing-tun | awk '{ print $2 }')
+          echo -e "\nreplace github.com/sagernet/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
+          tfo_go_version=$(cat go.mod | grep github.com/metacubex/tfo-go | awk '{ print $2 }')
+          echo -e "\nreplace github.com/metacubex/tfo-go ${tfo_go_version} => ../tfo-go" >> go.mod
 
       - name: Check for new version
         id: check
@@ -50,121 +69,101 @@ jobs:
           else
             LAST_VERSION="none"
           fi
-
-          if [ "${VERSION}" != "${LAST_VERSION}" ]; then
+          echo "Last version: ${LAST_VERSION}, current version: ${{ env.version }}"
+          if [ "${{ env.version }}" != "${LAST_VERSION}" ]; then
+            echo "${{ env.version }}" > last_version
+            echo "new=true" >> $GITHUB_ENV
             echo "new=true" >> $GITHUB_OUTPUT
           else
+            echo "new=false" >> $GITHUB_ENV
             echo "new=false" >> $GITHUB_OUTPUT
           fi
+          echo "version=${version}" >> $GITHUB_OUTPUT
+        shell: bash
 
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      # 仅当有新版本时执行
-      - name: Checkout source
-        if: steps.check.outputs.new == 'true'
-        uses: actions/checkout@v6
-
-      # 克隆 sing-box 读取 go.mod
-      - name: Clone sing-box source
-        if: steps.check.outputs.new == 'true'
-        run: |
-          git clone --depth 1 -b main https://github.com/Sagernet/sing-box.git sing-box
-
-      # 🔥 自动检测 Go 版本
-      - name: Detect required Go version
-        if: steps.check.outputs.new == 'true'
-        id: goversion
-        run: |
-          GO_VERSION=$(grep "^go " sing-box/go.mod | awk '{print $2}')
-          echo "Detected Go version: $GO_VERSION"
-          echo "go_version=$GO_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Setup Go automatically
-        if: steps.check.outputs.new == 'true'
+      - name: Setup Go
+        if: env.new == 'true'
         uses: actions/setup-go@v6
         with:
-          go-version: ${{ steps.goversion.outputs.go_version }}
+          go-version: "stable"
 
-      - name: Cache go modules
-        if: steps.check.outputs.new == 'true'
+      - name: Cache go dependencies
+        if: env.new == 'true'
         uses: actions/cache@v4
         with:
-          path: ~/go/pkg/mod
+          path: |
+            ~/go/pkg/mod
           key: go-${{ hashFiles('**/go.sum') }}
 
-      # 克隆依赖 + 打补丁
-      - name: Apply patches
-        if: steps.check.outputs.new == 'true'
-        run: |
-          git clone --depth 1 -b main https://github.com/Sagernet/sing-tun.git sing-tun
-          git clone --depth 1 https://github.com/metacubex/tfo-go.git tfo-go
+      - name: Cache go build
+        if: github.event_name != 'schedule'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+          key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.goos }}-${{ matrix.goarch }}
 
-          cd sing-tun
-          patch -p1 < ../sing-tun.patch || true
-
-          cd ../sing-box
-          patch -p1 < ../sing-box.patch || true
-
-          sing_tun_version=$(grep github.com/sagernet/sing-tun go.mod | awk '{ print $2 }')
-          echo "replace github.com/sagernet/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
-
-          tfo_go_version=$(grep github.com/metacubex/tfo-go go.mod | awk '{ print $2 }')
-          echo "replace github.com/metacubex/tfo-go ${tfo_go_version} => ../tfo-go" >> go.mod
-
-          # Ensure module dependencies are consistent
-          go mod tidy
-
-      # 构建
-      - name: Build
-        if: steps.check.outputs.new == 'true'
+      - name: Build binary file
+        if: env.new == 'true'
         run: |
           cd sing-box
-          # Make sure modules are clean before build
-          go mod tidy
+          go build -v -trimpath -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${RELEASE_NAME}' -s -w -buildid=" -tags ${tags} ./cmd/sing-box
+          if [ "${{ matrix.goarch }}" == 'arm' ]; then
+            mv sing-box sing-box-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
+          else
+            mv sing-box sing-box-${{ matrix.goos }}-${{ matrix.goarch }}
+          fi
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
 
-          GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 \
-          go build -trimpath -mod=mod \
-          -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${RELEASE_NAME}' -s -w -buildid=" \
-          -tags ${TAGS} ./cmd/sing-box
-
-          mv sing-box sing-box-freebsd-amd64
-          xz sing-box-freebsd-amd64
-
+      - name: Compress and move file to publish directory
+        if: env.new == 'true'
+        run: |
+          cd sing-box
+          if [ "${{ matrix.goarch }}" == 'arm' ]; then
+            xz -v sing-box-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
+          else
+            xz -v sing-box-${{ matrix.goos }}-${{ matrix.goarch }}
+          fi
           mkdir -p ../publish
-          mv sing-box-freebsd-amd64.xz ../publish/
+          cp -v sing-box-* ../publish/
 
-      - name: Release
-        if: steps.check.outputs.new == 'true'
+      - name: Release and upload assets
+        if: env.new == 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.RELEASE_NAME }}
           tag_name: ${{ env.TAG_NAME }}
-          overwrite_files: true
-          files: ./publish/*
+          draft: false
+          prerelease: false
+          files: |
+            ./publish/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   push:
     runs-on: ubuntu-latest
-    needs: build
     if: needs.build.outputs.new == 'true'
-
+    needs:
+      - build
     steps:
-      - name: Checkout repository
+      - name: Checkout the "hidden" branch
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: hidden
 
-      - name: Ensure branch exists
-        run: git checkout -B hidden
-
-      - name: Update version record
-        run: echo "${{ needs.build.outputs.version }}" > last_version
-
-      - name: Commit & Push
+      - name: Update last_version
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          echo "${{ needs.build.outputs.version }}" > last_version
+      - name: Push last_version to "hidden" branch
+        run: |
+          git config --local user.name "Vincent Loeng"
+          git config --local user.email "173226116+Vincent-Loeng@users.noreply.github.com"
           git add last_version
-          git commit -m "Release ${{ needs.build.outputs.version }}" || echo "No change"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git hidden --force
+          git commit -m "Release ${{ needs.build.outputs.version }}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
