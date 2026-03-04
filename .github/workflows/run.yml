@@ -107,13 +107,19 @@ jobs:
           tfo_go_version=$(grep github.com/metacubex/tfo-go go.mod | awk '{ print $2 }')
           echo "replace github.com/metacubex/tfo-go ${tfo_go_version} => ../tfo-go" >> go.mod
 
+          # Ensure module dependencies are consistent
+          go mod tidy
+
       # 构建
       - name: Build
         if: steps.check.outputs.new == 'true'
         run: |
           cd sing-box
+          # Make sure modules are clean before build
+          go mod tidy
+
           GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 \
-          go build -trimpath \
+          go build -trimpath -mod=mod \
           -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${RELEASE_NAME}' -s -w -buildid=" \
           -tags ${TAGS} ./cmd/sing-box
 
