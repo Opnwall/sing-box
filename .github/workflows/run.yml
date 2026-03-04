@@ -101,8 +101,6 @@ jobs:
 
           cd sing-tun
           patch -p1 < ../sing-tun.patch || true
-          cp monitor_darwin.go monitor_freebsd.go || true
-          cp monitor_darwin.go monitor_openbsd.go || true
 
           cd ../sing-box
           patch -p1 < ../sing-box.patch || true
