@@ -29,12 +29,18 @@ jobs:
           echo "TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" >> $GITHUB_ENV
 
       # 读取 hidden 分支版本记录
-      - name: Checkout hidden branch
+      - name: Checkout repository (for version check)
         uses: actions/checkout@v6
         with:
-          ref: hidden
-          fetch-depth: 1
-        continue-on-error: true
+          fetch-depth: 0
+
+      - name: Try switch to hidden branch
+        run: |
+          if git show-ref --verify --quiet refs/heads/hidden; then
+            git checkout hidden
+          else
+            echo "hidden branch does not exist yet"
+          fi
 
       - name: Check for new version
         id: check
@@ -146,11 +152,10 @@ jobs:
     if: needs.build.outputs.new == 'true'
 
     steps:
-      - name: Checkout hidden
+      - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: hidden
-        continue-on-error: true
+          fetch-depth: 0
 
       - name: Ensure branch exists
         run: git checkout -B hidden
