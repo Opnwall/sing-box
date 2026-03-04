@@ -51,11 +51,11 @@ jobs:
           git clone --depth 1 -b main https://github.com/Sagernet/sing-box.git sing-box
           ls -lha
           cd sing-tun
-          patch -p1 < "$GITHUB_WORKSPACE/sing-tun.patch"
+          patch -p1 < "$GITHUB_WORKSPACE/conf/sing-tun.patch"
           cp monitor_darwin.go monitor_freebsd.go
           cp monitor_darwin.go monitor_openbsd.go
           cd ../sing-box
-          patch -p1 < "$GITHUB_WORKSPACE/sing-box.patch"
+          patch -p1 < "$GITHUB_WORKSPACE/conf/sing-box.patch"
           sing_tun_version=$(cat go.mod | grep github.com/sagernet/sing-tun | awk '{ print $2 }')
           echo -e "\nreplace github.com/sagernet/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
           tfo_go_version=$(cat go.mod | grep github.com/metacubex/tfo-go | awk '{ print $2 }')
