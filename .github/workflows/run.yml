@@ -43,23 +43,28 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: master
-
+          
       - name: Apply patches
+        if: steps.check.outputs.new == 'true'
         run: |
           git clone --depth 1 -b main https://github.com/Sagernet/sing-tun.git sing-tun
           git clone --depth 1 https://github.com/metacubex/tfo-go.git tfo-go
-          git clone --depth 1 -b main https://github.com/Sagernet/sing-box.git sing-box
-          ls -lha
+
           cd sing-tun
-          patch -p1 < "$GITHUB_WORKSPACE/conf/sing-tun.patch"
-          cp monitor_darwin.go monitor_freebsd.go
-          cp monitor_darwin.go monitor_openbsd.go
+          patch -p1 < ../sing-tun.patch || true
+
           cd ../sing-box
-          patch -p1 < "$GITHUB_WORKSPACE/conf/sing-box.patch"
-          sing_tun_version=$(cat go.mod | grep github.com/sagernet/sing-tun | awk '{ print $2 }')
-          echo -e "\nreplace github.com/sagernet/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
-          tfo_go_version=$(cat go.mod | grep github.com/metacubex/tfo-go | awk '{ print $2 }')
-          echo -e "\nreplace github.com/metacubex/tfo-go ${tfo_go_version} => ../tfo-go" >> go.mod
+          patch -p1 < ../sing-box.patch || true
+
+          sing_tun_version=$(grep github.com/sagernet/sing-tun go.mod | awk '{ print $2 }')
+          echo "replace github.com/sagernet/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
+
+          tfo_go_version=$(grep github.com/metacubex/tfo-go go.mod | awk '{ print $2 }')
+          echo "replace github.com/metacubex/tfo-go ${tfo_go_version} => ../tfo-go" >> go.mod
+
+          # Ensure module dependencies are consistent
+          go mod tidy
+
 
       - name: Check for new version
         id: check
