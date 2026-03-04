@@ -39,10 +39,10 @@ jobs:
           echo "tags=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" >> $GITHUB_ENV
           echo "version=${latest_version}" >> $GITHUB_ENV
 
-      - name: Checkout the "hidden" branch
+      - name: Checkout the repository (master branch)
         uses: actions/checkout@v6
         with:
-          ref: hidden
+          ref: master
 
       - name: Apply patches
         run: |
