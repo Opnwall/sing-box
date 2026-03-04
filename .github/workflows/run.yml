@@ -26,7 +26,7 @@ jobs:
           echo "VERSION=${latest_version}" >> $GITHUB_ENV
           echo "RELEASE_NAME=${latest_version}-vincent" >> $GITHUB_ENV
           echo "TAG_NAME=v${latest_version}-vincent" >> $GITHUB_ENV
-          echo "TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" >> $GITHUB_ENV
+          echo "TAGS=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api" >> $GITHUB_ENV
 
       # 读取 hidden 分支版本记录
       - name: Checkout repository (for version check)
@@ -113,13 +113,6 @@ jobs:
 
           # Ensure module dependencies are consistent
           go mod tidy
-
-          # Fix tailscale FreeBSD unused import issue
-          TAILSCALE_PATH=$(go env GOPATH)/pkg/mod/github.com/sagernet/tailscale@*
-          FREEBSD_ROUTER_FILE=$(ls -d ${TAILSCALE_PATH} 2>/dev/null | head -n1)/wgengine/router/osrouter/router_freebsd.go
-          if [ -f "$FREEBSD_ROUTER_FILE" ]; then
-            sed -i '/github.com\/sagernet\/wireguard-go\/tun/d' "$FREEBSD_ROUTER_FILE"
-          fi
 
       # 构建
       - name: Build
